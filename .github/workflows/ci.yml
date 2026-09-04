@@ -1,0 +1,198 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: github.ref_type != 'tag'
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, nightly]
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install Rust
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install ${{ matrix.toolchain }} --profile minimal --component clippy,rustfmt
+          rustup default ${{ matrix.toolchain }}
+
+      - name: Check
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: |
+          cargo test --workspace --lib --tests
+          RUSTDOCFLAGS="-D warnings" cargo test --workspace --doc
+
+  full:
+    if: github.ref_type == 'tag'
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            kind: linux
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            kind: linux
+          - runner: ubuntu-latest
+            target: i686-unknown-linux-gnu
+            kind: linux
+            qemu_system: true
+            linker: i686-linux-gnu-gcc
+            packages: qemu-system-x86 gcc-i686-linux-gnu libc6-dev-i386-cross
+          - runner: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            kind: linux
+            qemu_system: true
+            linker: arm-linux-gnueabihf-gcc
+            packages: qemu-system-arm gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
+          - runner: ubuntu-latest
+            target: aarch64-linux-android
+            kind: android
+          - runner: ubuntu-latest
+            target: armv7-linux-androideabi
+            kind: android
+          - runner: ubuntu-latest
+            target: x86_64-linux-android
+            kind: android
+          - runner: ubuntu-latest
+            target: i686-linux-android
+            kind: android
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install Rust
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+
+      - name: Install cross toolchain
+        if: matrix.qemu_system
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.packages }}
+          triple_env=$(echo '${{ matrix.target }}' | tr 'a-z-' 'A-Z_')
+          echo "CARGO_TARGET_${triple_env}_LINKER=${{ matrix.linker }}" >> "$GITHUB_ENV"
+
+      - name: Check
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --all-features --target ${{ matrix.target }} -- -D warnings
+
+      - name: Test
+        if: ${{ matrix.kind == 'linux' && !matrix.qemu_system }}
+        run: |
+          cargo test --workspace --lib --tests --target ${{ matrix.target }}
+          RUSTDOCFLAGS="-D warnings" cargo test --workspace --doc --target ${{ matrix.target }}
+
+      - name: Test (qemu-system)
+        if: matrix.qemu_system
+        run: python3 scripts/run_qemu_system_tests.py --target ${{ matrix.target }}
+
+  kernel:
+    if: github.ref_type == 'tag'
+    name: kernel-${{ matrix.kernel }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: ['6.18', '6.12', '6.6', '6.1', '5.15', '5.10', '4.14']
+    env:
+      KERNEL_CACHE: ~/.cache/omhook-gki-kernels
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          tag=$(python3 scripts/run_gki_kernel_matrix.py --kernel ${{ matrix.kernel }} --print-tag)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Restore kernel cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.KERNEL_CACHE }}
+          key: gki-kernel-${{ matrix.kernel }}-${{ steps.tag.outputs.tag }}
+
+      - name: Install kernel build tools
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm
+
+      - name: Prepare kernel image
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: python3 scripts/run_gki_kernel_matrix.py --kernel ${{ matrix.kernel }} --prepare-only
+
+  android-gki:
+    if: github.ref_type == 'tag'
+    name: gki-${{ matrix.kernel }}
+    needs: kernel
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: ['6.18', '6.12', '6.6', '6.1', '5.15', '5.10', '4.14']
+    env:
+      KERNEL_CACHE: ~/.cache/omhook-gki-kernels
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          tag=$(python3 scripts/run_gki_kernel_matrix.py --kernel ${{ matrix.kernel }} --print-tag)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Restore kernel cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.KERNEL_CACHE }}
+          key: gki-kernel-${{ matrix.kernel }}-${{ steps.tag.outputs.tag }}
+
+      - name: Install Rust
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-unknown-linux-gnu
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-aarch64
+
+      - name: Test (QEMU GKI)
+        run: python3 scripts/run_gki_kernel_matrix.py --kernel ${{ matrix.kernel }}

@@ -1,0 +1,33 @@
+#!/bin/sh
+set -e
+
+# Git hooks on Windows cannot compile this Linux/Android crate. Re-enter via WSL.
+if [ "$(uname -s)" != Linux ]; then
+    if ! command -v wsl.exe >/dev/null 2>&1; then
+        echo "pre-commit: skip (not Linux, WSL missing)"
+        exit 0
+    fi
+    pwd=$PWD
+    case "$pwd" in
+        /mnt/*) repo=$pwd ;;
+        /[A-Za-z]/*)
+            drive=$(printf '%s' "$pwd" | cut -c2 | tr 'A-Z' 'a-z')
+            repo="/mnt/$drive$(printf '%s' "$pwd" | cut -c3-)"
+            ;;
+        *)
+            echo "pre-commit: skip (unsupported Windows path: $pwd)"
+            exit 0
+            ;;
+    esac
+    exec wsl.exe bash -lc "cd '$repo' && exec sh .cargo-husky/hooks/pre-commit"
+fi
+
+echo "+ cargo fmt --all -- --check"
+cargo fmt --all -- --check
+echo "+ cargo clippy --workspace --all-targets --all-features -- -D warnings"
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+# Host GNU only. Skip Android and other triples this machine cannot run.
+echo "+ cargo test --workspace --lib --tests"
+cargo test --workspace --lib --tests
+echo "+ cargo test --workspace --doc"
+RUSTDOCFLAGS="-D warnings" cargo test --workspace --doc

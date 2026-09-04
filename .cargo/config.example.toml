@@ -1,0 +1,13 @@
+# Copy this file to `.cargo/config.toml` and replace the linker path, or run:
+# `python3 scripts/setup_cargo_config.py` (use `--ndk-root` if several NDKs exist).
+[target.aarch64-linux-android]
+linker = "AARCH64_CLANG_PATH"
+
+[target.armv7-linux-androideabi]
+linker = "ARMV7_CLANG_PATH"
+
+[target.i686-linux-android]
+linker = "I686_CLANG_PATH"
+
+[target.x86_64-linux-android]
+linker = "X86_64_CLANG_PATH"
