@@ -1,0 +1,66 @@
+[package]
+name = "omhook"
+version = "0.1.0"
+edition = "2024"
+authors = ["James Clef <qwq233@qwq2333.top>"]
+license = "LGPL-3.0-or-later"
+readme = "README.md"
+repository = "https://github.com/qwq233/OhMyHook"
+documentation = "https://docs.rs/omhook"
+description = "Pure Rust PLT/GOT and inline hooking for Linux and Android"
+keywords = ["android", "elf", "hook", "linux", "inline"]
+categories = ["development-tools::ffi", "os"]
+exclude = [
+    ".cargo-husky/",
+    ".cargo/",
+    ".editorconfig",
+    ".gitattributes",
+    ".github/",
+    "AGENTS.md",
+    "book/",
+    "scripts/",
+]
+
+[package.metadata.docs.rs]
+all-features = true
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-linux-android",
+    "armv7-unknown-linux-gnueabihf",
+    "i686-unknown-linux-gnu",
+]
+
+[features]
+default = ["plt", "inline"]
+plt = []
+inline = ["dep:iced-x86", "dep:yaxpeax-arch", "dep:yaxpeax-arm"]
+
+[lints.clippy]
+unwrap_used = "allow"
+expect_used = "allow"
+panic = "allow"
+unreachable = "allow"
+todo = "allow"
+unimplemented = "allow"
+let_underscore_must_use = "allow"
+match_wild_err_arm = "allow"
+
+[dependencies]
+libc = "0.2.189"
+log = "0.4.34"
+syscalls = { version = "0.8.1", default-features = false }
+
+[target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
+iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "block_encoder", "instr_info"], optional = true }
+
+[target.'cfg(target_arch = "arm")'.dependencies]
+yaxpeax-arch = { version = "0.3.2", default-features = false, features = ["alloc"], optional = true }
+yaxpeax-arm = { version = "0.4.0", default-features = false, features = ["non-exhaustive-enums"], optional = true }
+
+[dev-dependencies]
+cargo-husky = { version = "1.5.0", default-features = false, features = ["user-hooks"] }
+
+[workspace]
+members = ["."]
+resolver = "2"

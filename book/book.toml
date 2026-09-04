@@ -1,0 +1,17 @@
+[book]
+title = "Oh My Hook"
+description = "PLT/GOT and inline hooking for Linux and Android"
+authors = ["James Clef"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[rust]
+edition = "2024"
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "ayu"
